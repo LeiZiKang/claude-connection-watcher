@@ -1,0 +1,19 @@
+/dist/
+.DS_Store
+*.log
+.swiftpm/
+.build/
+
+# Credentials and Apple signing exports must never enter the repository.
+.env
+.env.*
+*.p8
+*.p12
+*.key
+*.pem
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+*.mobileconfig
+*.xcarchive
