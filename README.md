@@ -63,6 +63,8 @@ dist/Claude Connection Watcher.app
 
 The build script does not launch the app or stop any process. If your installed compiler and SDK are out of sync, set `CCW_SDK_PATH` to a compatible macOS SDK directory before building.
 
+To prepare a Universal 2 ZIP for a GitHub Release, follow the [release guide](docs/RELEASING.md). Stable public packages require Developer ID signing and Apple notarization; signing and notarization credentials remain in the local macOS Keychain and are never copied into the repository.
+
 ## Test
 
 ```bash
