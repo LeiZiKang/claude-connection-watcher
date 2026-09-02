@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Build and test
         run: bash scripts/test.sh
       - name: Build Universal 2 preview package

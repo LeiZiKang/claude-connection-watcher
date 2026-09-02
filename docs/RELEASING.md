@@ -49,10 +49,13 @@ The script:
 2. Signs the app with Hardened Runtime and a secure timestamp.
 3. Rejects signatures that are not Developer ID Application signatures.
 4. Submits a temporary ZIP through `notarytool` using the Keychain profile.
-5. Staples and validates the notarization ticket.
-6. Runs `codesign` and Gatekeeper assessment checks.
-7. Repackages the stapled app and writes a SHA-256 checksum.
-8. Extracts the exact final ZIP into a fresh temporary directory and repeats architecture, signature, stapler, and Gatekeeper checks.
+5. Requires structured `Accepted`/status-code results and rejects issue records in the downloaded notary log.
+6. Staples and validates the notarization ticket.
+7. Runs `codesign` and Gatekeeper assessment checks.
+8. Packages under a hidden pending filename, extracts it into a fresh temporary directory, and repeats architecture, signature, stapler, and Gatekeeper checks.
+9. Only after every gate succeeds, exposes the formal ZIP filename and writes a basename-only SHA-256 checksum.
+
+The ignored `release/` directory also retains the Apple notary log for local review. Do not upload that log as a release asset.
 
 Expected assets:
 
