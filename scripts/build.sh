@@ -48,15 +48,13 @@ for architecture in "${architectures[@]}"; do
   architecture_root="$thin_root/$architecture"
   binary_path="$architecture_root/ClaudeConnectionWatcher"
   mkdir -p \
-    "$architecture_root/ModuleCache" \
-    "$architecture_root/SDKModuleCache"
+    "$architecture_root/ModuleCache"
 
   xcrun swiftc \
     -swift-version 5 \
     -target "$architecture-apple-macosx13.0" \
     -sdk "$sdk_path" \
     -module-cache-path "$architecture_root/ModuleCache" \
-    -sdk-module-cache-path "$architecture_root/SDKModuleCache" \
     -framework AppKit \
     "$project_root/Sources/main.swift" \
     -o "$binary_path"
