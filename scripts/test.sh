@@ -9,4 +9,4 @@ plutil -lint "$project_root/Info.plist"
 "$script_dir/build.sh"
 "$app_binary" --self-test
 
-echo "All tests passed. No process was stopped."
+echo "All tests passed. No user application was stopped."

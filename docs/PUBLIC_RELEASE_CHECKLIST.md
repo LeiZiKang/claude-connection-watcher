@@ -22,7 +22,7 @@ Complete this checklist before publishing source code, tags, releases, binary at
 - Rebuild from the reviewed checkout; do not reuse an older bundle that may contain stale resources.
 - Inspect compiled binaries and packaged resources for embedded tokens, credentials, private endpoints, local configuration, or provisioning profiles.
 - Confirm generated apps, caches, local diagnostics, and signing exports are excluded by `.gitignore`.
-- Run the no-signal test path and verify the repository is clean before tagging.
+- Run self-tests (which may stop their own disposable child processes but never user applications) and verify the repository is clean before tagging.
 
 ## Final checks
 

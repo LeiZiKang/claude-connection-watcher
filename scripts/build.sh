@@ -56,7 +56,7 @@ for architecture in "${architectures[@]}"; do
     -sdk "$sdk_path" \
     -module-cache-path "$architecture_root/ModuleCache" \
     -framework AppKit \
-    "$project_root/Sources/main.swift" \
+    "$project_root"/Sources/*.swift \
     -o "$binary_path"
 
   strip -x "$binary_path"
