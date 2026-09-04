@@ -10,7 +10,9 @@ This is an independent project, not affiliated with or endorsed by Anthropic.
 - **Observed connections:** other applications whose local sockets can be associated with a Claude/Anthropic connection in the existing Clash Verge / Mihomo connection table. Records stay in memory for five minutes.
 - **Related components:** the other currently running processes inside the same `.app` bundle. Quitting just a renderer may leave its parent application running, so the confirmation lists every captured component PID.
 
-The list shows the owning app, process names, PIDs, identification basis, observed domains, and whether a recorded process has exited. Use **查看相关 App 与进程…** to inspect it, or **一键退出全部相关 App…** to review and quit the listed apps together. Browsers may close unrelated tabs and windows; save your work first.
+Click the menu bar icon to open the app list directly. Each app uses its original macOS icon and shows its running-process count. Expand a row to see process names, PIDs, identification basis, observed domains, and exited records. Icons load in the background and are cached; expanded groups and scroll position persist across updates. Command-line programs use their executable's system icon when they have no app bundle.
+
+Use **退出全部相关 App…** at the bottom to review and quit the displayed apps together. The action takes its targets from the displayed snapshot, then revalidates their identities. Browsers may close unrelated tabs and windows; save your work first.
 
 ## Connection attribution
 

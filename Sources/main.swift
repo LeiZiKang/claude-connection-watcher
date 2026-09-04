@@ -46,8 +46,8 @@ func captureProcessIdentity(pid: Int32) -> ProcessIdentity? {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private var statusMenuItem: NSMenuItem!
-    private var actionItems: [NSMenuItem] = []
+    private let popover = NSPopover()
+    private let appList = AppListViewController()
     private var isBusy = false
     private let observer = ClaudeConnectionObserver()
 
@@ -55,11 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         configureMenu()
         guard geteuid() != 0 else {
-            statusMenuItem.title = "状态：拒绝以 root 身份运行"
-            actionItems.forEach { $0.isEnabled = false }
+            statusItem.button?.toolTip = "拒绝以 root 身份运行"
+            statusItem.button?.isEnabled = false
             return
         }
         observer.start { [weak self] in self?.refreshStatus() }
+        if CommandLine.arguments.contains("--show-list") { togglePopover() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -71,63 +72,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem.button {
             button.image = MenuBarIcon.make()
             button.toolTip = "Claude Connection Watcher"
+            button.target = self
+            button.action = #selector(togglePopover)
         }
-
-        let menu = NSMenu()
-        statusMenuItem = NSMenuItem(title: "状态：正在识别相关 App…", action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
-        menu.addItem(.separator())
-
-        addAction(to: menu, title: "查看相关 App 与进程…", action: #selector(checkProcesses), key: "c")
-        addAction(to: menu, title: "一键退出全部相关 App…", action: #selector(stopProcesses), key: "s")
-        menu.addItem(.separator())
-
-        let scope = NSMenuItem(title: "Claude 客户端 + 最近 5 分钟有相关连接的 App", action: nil, keyEquivalent: "")
-        scope.isEnabled = false
-        menu.addItem(scope)
-        let limitation = NSMenuItem(title: "Clash 等网络工具始终排除；不修改网络设置", action: nil, keyEquivalent: "")
-        limitation.isEnabled = false
-        menu.addItem(limitation)
-        menu.addItem(.separator())
-
-        addAction(to: menu, title: "退出菜单栏应用", action: #selector(quitApp), key: "q", tracked: false)
-        statusItem.menu = menu
+        popover.behavior = .transient
+        popover.contentViewController = appList
+        appList.onQuitAll = { [weak self] items, warning in
+            guard let self else { return }
+            self.popover.performClose(nil)
+            self.stopProcesses(items: items, warning: warning)
+        }
+        appList.onQuitWatcher = { [weak self] in self?.quitApp() }
     }
 
-    private func addAction(to menu: NSMenu, title: String, action: Selector, key: String, tracked: Bool = true) {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.target = self
-        menu.addItem(item)
-        if tracked { actionItems.append(item) }
+    @objc private func togglePopover() {
+        if popover.isShown { popover.performClose(nil); return }
+        guard let button = statusItem.button else { return }
+        refreshStatus()
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
-    @objc private func checkProcesses() {
-        let snapshot = observer.snapshot()
-        let details = evidenceDetails(snapshot.items, error: snapshot.error)
-        showAlert(
-            title: snapshot.items.isEmpty ? "暂未识别到相关 App" : "\(Set(snapshot.items.map { $0.process.owner }).count) 个 App · \(snapshot.items.count) 个进程",
-            message: observationMessage(items: snapshot.items, error: snapshot.error),
-            details: details,
-            style: snapshot.error == nil ? .informational : .warning
-        )
-    }
-
-    @objc private func stopProcesses() {
+    private func stopProcesses(items: [NetworkEvidence], warning: String?) {
         guard !isBusy else { return }
-        let snapshot = observer.snapshot()
-        let liveItems = snapshot.items.filter { processIdentityIsCurrent($0) }
+        let liveItems = items.filter { processIdentityIsCurrent($0) }
         guard !liveItems.isEmpty else {
             showAlert(
                 title: "无需退出",
                 message: "当前列表中没有仍在运行的相关进程。",
-                details: evidenceDetails(snapshot.items, error: snapshot.error),
+                details: evidenceDetails(items, error: warning),
                 style: .informational
             )
             return
         }
 
-        guard confirmStop(items: liveItems, warning: snapshot.error) else { return }
+        guard confirmStop(items: liveItems, warning: warning) else { return }
         setBusy(true, status: "状态：正在退出已观测进程…")
         signalProcesses(items: liveItems, signal: SIGTERM, waitSeconds: 5) { [weak self] result in
             guard let self else { return }
@@ -189,12 +169,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let live = snapshot.items.filter { processIdentityIsCurrent($0) }
         let count = Set(live.map { $0.process.owner }).count
         let suffix = snapshot.error == nil ? "" : " · 部分连接不可见"
-        statusMenuItem.title = "\(count) 个相关 App · \(live.count) 个运行中进程\(suffix)"
-    }
-
-    private func observationMessage(items: [NetworkEvidence], error: String?) -> String {
-        let elapsed = min(Int(Date().timeIntervalSince(observer.startedAt)), 300)
-        return "按 App 归类，列出 Claude 客户端及最近有相关连接的 App 和组件。网络观察已覆盖 \(elapsed) 秒；已退出的历史进程不会再次退出。"
+        statusItem.button?.toolTip = "\(count) 个相关 App · \(live.count) 个运行中进程\(suffix)"
+        appList.update(items: snapshot.items, warning: snapshot.error)
     }
 
     private func evidenceDetails(_ items: [NetworkEvidence], error: String?) -> String {
@@ -277,8 +253,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setBusy(_ busy: Bool, status: String) {
         isBusy = busy
-        statusMenuItem.title = status
-        actionItems.forEach { $0.isEnabled = !busy }
+        statusItem.button?.toolTip = status
+        appList.setBusy(busy)
     }
 
     private func showAlert(title: String, message: String, details: String, style: NSAlert.Style) {
