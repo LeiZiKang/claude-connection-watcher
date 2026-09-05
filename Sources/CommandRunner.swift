@@ -4,7 +4,8 @@ import Darwin
 struct CommandResult {
     let status: Int32
     let output: Data
-    let diagnostic: String?
+    let diagnosticMessage: LocalizedMessage?
+    var diagnostic: String? { diagnosticMessage?.value }
 }
 
 enum CommandRunner {
@@ -27,10 +28,10 @@ enum CommandRunner {
             try? stderr.fileHandleForWriting.close()
         }
         do { try process.run() }
-        catch { return CommandResult(status: -1, output: Data(), diagnostic: "无法启动 \(URL(fileURLWithPath: executable).lastPathComponent)：\(error.localizedDescription)") }
+        catch { return CommandResult(status: -1, output: Data(), diagnosticMessage: LocalizedMessage("无法启动 \(URL(fileURLWithPath: executable).lastPathComponent)：\(error.localizedDescription)", "Unable to start \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)")) }
         var output = Data(), errors = Data()
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        var failure: String?
+        var failure: LocalizedMessage?
         let limit = 8 * 1024 * 1024
         func drain(_ descriptor: Int32, into data: inout Data) {
             var buffer = [UInt8](repeating: 0, count: 16384)
@@ -44,13 +45,13 @@ enum CommandRunner {
         while true {
             drain(outFD, into: &output)
             drain(errFD, into: &errors)
-            if output.count > limit || errors.count > limit { failure = "采样输出超过容量限制"; break }
+            if output.count > limit || errors.count > limit { failure = LocalizedMessage("采样输出超过容量限制", "Sample output exceeded the size limit"); break }
             if !process.isRunning {
                 drain(outFD, into: &output)
                 drain(errFD, into: &errors)
                 break
             }
-            if ProcessInfo.processInfo.systemUptime >= deadline { failure = "\(URL(fileURLWithPath: executable).lastPathComponent) 采样超时（\(Int(timeout)) 秒）"; break }
+            if ProcessInfo.processInfo.systemUptime >= deadline { failure = LocalizedMessage("\(URL(fileURLWithPath: executable).lastPathComponent) 采样超时（\(Int(timeout)) 秒）", "\(URL(fileURLWithPath: executable).lastPathComponent) timed out after \(timeout) seconds"); break }
             var descriptors = [pollfd(fd: outFD, events: Int16(POLLIN), revents: 0),
                                pollfd(fd: errFD, events: Int16(POLLIN), revents: 0)]
             _ = poll(&descriptors, nfds_t(descriptors.count), 10)
@@ -60,10 +61,10 @@ enum CommandRunner {
             let grace = ProcessInfo.processInfo.systemUptime + 0.2
             while process.isRunning && ProcessInfo.processInfo.systemUptime < grace { usleep(10000) }
             if process.isRunning { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
-            return CommandResult(status: -1, output: Data(), diagnostic: failure)
+            return CommandResult(status: -1, output: Data(), diagnosticMessage: failure)
         }
         let error = String(decoding: errors.prefix(2048), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return CommandResult(status: process.terminationStatus, output: output,
-                             diagnostic: error.isEmpty ? nil : error)
+                             diagnosticMessage: error.isEmpty ? nil : LocalizedMessage(error, error))
     }
 }

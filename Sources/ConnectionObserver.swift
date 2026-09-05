@@ -4,6 +4,13 @@ enum EvidenceKind: String {
     case official = "已验证签名的 Claude 客户端组件"
     case connection = "观测到 Claude / Anthropic 连接"
     case appMember = "属于有相关连接的同一 App"
+    var localizedDescription: String {
+        switch self {
+        case .official: return L10n.text(rawValue, "Verified Claude client component")
+        case .connection: return L10n.text(rawValue, "Observed Claude / Anthropic connection")
+        case .appMember: return L10n.text(rawValue, "Component of an app with a related connection")
+        }
+    }
 }
 
 struct NetworkEvidence {
@@ -61,7 +68,8 @@ final class ClaudeConnectionObserver {
     private var timer: DispatchSourceTimer?
     private var history: [ProcessIdentity: NetworkEvidence] = [:]
     private var cachedItems: [NetworkEvidence] = []
-    private var cachedError: String?
+    private var cachedError: LocalizedMessage?
+    private let refreshGate = RefreshGate()
     private(set) var startedAt = Date()
 
     func start(onUpdate: @escaping () -> Void) {
@@ -79,17 +87,29 @@ final class ClaudeConnectionObserver {
 
     func stop() { timer?.cancel(); timer = nil }
 
+    @discardableResult
+    func refresh(completion: @escaping () -> Void) -> Bool {
+        guard refreshGate.begin() else { return false }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.sample()
+            self.refreshGate.finish()
+            DispatchQueue.main.async(execute: completion)
+        }
+        return true
+    }
+
     func snapshot() -> (items: [NetworkEvidence], error: String?) {
         snapshotLock.lock()
         defer { snapshotLock.unlock() }
         let now = Date()
-        return (cachedItems.filter { $0.kind == .official || now.timeIntervalSince($0.observedAt) < Self.window }, cachedError)
+        return (cachedItems.filter { $0.kind == .official || now.timeIntervalSince($0.observedAt) < Self.window }, cachedError?.value)
     }
 
     // Also used by --diagnose; collects metadata only and never signals a target.
     func sample() {
         let before = inventory.collect()
-        var warning: String?
+        var warning: LocalizedMessage?
         var matches: [NetworkEvidence] = []
         let socketPath = "/tmp/verge/verge-mihomo.sock"
         if FileManager.default.fileExists(atPath: socketPath) {
@@ -101,9 +121,9 @@ final class ClaudeConnectionObserver {
                 "--unix-socket", socketPath, "--request", "GET", "http://localhost/connections"])
             let last = readSockets()
             if let error = first.error ?? last.error {
-                warning = "其他 App 的网络识别不可用：\(error)"
+                warning = LocalizedMessage("其他 App 的网络识别不可用：\(error.chinese)", "Other app connections are unavailable: \(error.english)")
             } else if response.status != 0 || response.diagnostic != nil {
-                warning = "无法读取现有代理的连接记录；仍会列出已识别的 Claude 客户端。"
+                warning = LocalizedMessage("无法读取现有代理的连接记录；仍会列出已识别的 Claude 客户端。", "Proxy connections are unavailable. Verified Claude clients are still listed.")
             } else if let connections = Self.parseConnections(response.output) {
                 let after = inventory.collect()
                 for connection in connections {
@@ -113,12 +133,12 @@ final class ClaudeConnectionObserver {
                         matchedDomain: connection.host, endpoint: socket.display, observedAt: Date()))
                 }
                 let missed = connections.count - matches.count
-                if missed > 0 { warning = "\(missed) 条相关代理连接暂时无法精确对应本机进程；未据此增加退出目标。" }
+                if missed > 0 { warning = LocalizedMessage("\(missed) 条相关代理连接暂时无法精确对应本机进程；未据此增加退出目标。", "\(missed) related connections could not be mapped to a process. No quit targets were added for them.") }
             } else {
-                warning = "现有代理没有返回可识别的连接记录；仍会列出 Claude 客户端。"
+                warning = LocalizedMessage("现有代理没有返回可识别的连接记录；仍会列出 Claude 客户端。", "The proxy returned no usable connection records. Claude clients are still listed.")
             }
         } else {
-            warning = "未发现受支持的本地代理连接接口。已列出 Claude 客户端；其他 App 的访问尚不可见。"
+            warning = LocalizedMessage("未发现受支持的本地代理连接接口。已列出 Claude 客户端；其他 App 的访问尚不可见。", "No supported local proxy interface found. Claude clients are listed; other app connections are not visible.")
         }
         let current = inventory.collect()
         let now = Date()
@@ -158,10 +178,10 @@ final class ClaudeConnectionObserver {
         snapshotLock.unlock()
     }
 
-    private func readSockets() -> (items: Set<SocketRecord>, error: String?) {
+    private func readSockets() -> (items: Set<SocketRecord>, error: LocalizedMessage?) {
         let result = CommandRunner.run("/usr/sbin/lsof", ["-nP", "-l", "-iTCP", "-iUDP", "-FpcnP"])
         guard (result.status == 0 || (result.status == 1 && result.output.isEmpty)), result.diagnostic == nil else {
-            return ([], result.diagnostic ?? "无法读取本机连接表")
+            return ([], result.diagnosticMessage ?? LocalizedMessage("无法读取本机连接表", "Unable to read local sockets"))
         }
         return (Self.parseSockets(String(decoding: result.output, as: UTF8.self)), nil)
     }

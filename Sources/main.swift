@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         configureMenu()
         guard geteuid() != 0 else {
-            statusItem.button?.toolTip = "拒绝以 root 身份运行"
+            statusItem.button?.toolTip = L10n.text("拒绝以 root 身份运行", "Running as root is not supported")
             statusItem.button?.isEnabled = false
             return
         }
@@ -83,6 +83,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.stopProcesses(items: items, warning: warning)
         }
         appList.onQuitWatcher = { [weak self] in self?.quitApp() }
+        appList.onLanguageChange = { [weak self] in self?.refreshStatus() }
+        appList.onRefresh = { [weak self] in
+            guard let self, !self.isBusy else { return }
+            if self.observer.refresh(completion: { [weak self] in
+                self?.appList.setRefreshing(false)
+                self?.refreshStatus()
+            }) {
+                self.appList.setRefreshing(true)
+            }
+        }
     }
 
     @objc private func togglePopover() {
@@ -99,8 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let liveItems = items.filter { processIdentityIsCurrent($0) }
         guard !liveItems.isEmpty else {
             showAlert(
-                title: "无需退出",
-                message: "当前列表中没有仍在运行的相关进程。",
+                title: L10n.text("无需退出", "Nothing to quit"),
+                message: L10n.text("当前列表中没有仍在运行的相关进程。", "There are no running related processes in this list."),
                 details: evidenceDetails(items, error: warning),
                 style: .informational
             )
@@ -108,14 +118,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard confirmStop(items: liveItems, warning: warning) else { return }
-        setBusy(true, status: "状态：正在退出已观测进程…")
+        setBusy(true, status: L10n.text("状态：正在退出已观测进程…", "Quitting related processes…"))
         signalProcesses(items: liveItems, signal: SIGTERM, waitSeconds: 5) { [weak self] result in
             guard let self else { return }
             if result.status == 0 {
-                self.setBusy(false, status: "状态：已完成身份校验与退出处理")
-                self.showAlert(title: "处理完成", message: "身份一致的目标已收到 SIGTERM；已退出或身份改变的目标被跳过。", details: result.output, style: .informational)
+                self.setBusy(false, status: L10n.text("状态：已完成身份校验与退出处理", "Quit operation completed"))
+                self.showAlert(title: L10n.text("处理完成", "Completed"), message: L10n.text("身份一致的目标已收到 SIGTERM；已退出或身份改变的目标被跳过。", "SIGTERM was sent to matching targets. Exited or changed identities were skipped."), details: result.output, style: .informational)
             } else {
-                self.setBusy(false, status: "状态：仍有已观测进程未退出")
+                self.setBusy(false, status: L10n.text("状态：仍有已观测进程未退出", "Some related processes are still running"))
                 self.offerForceQuit(items: liveItems, details: result.output)
             }
         }
@@ -127,10 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "退出这 \(Set(items.map { $0.process.owner }).count) 个 App？"
-        alert.informativeText = "将退出下方列出的 \(items.count) 个进程，包括同属 App 的 Helper。浏览器的其他窗口也可能关闭，请先保存工作。Clash 等网络工具不会退出。"
-        alert.addButton(withTitle: "退出这些 App")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L10n.text("退出这 \(Set(items.map { $0.process.owner }).count) 个 App？", "Quit these apps (\(Set(items.map { $0.process.owner }).count))?")
+        alert.informativeText = L10n.text("将退出下方列出的 \(items.count) 个进程，包括同属 App 的 Helper。浏览器的其他窗口也可能关闭，请先保存工作。Clash 等网络工具不会退出。", "This will quit the \(items.count) listed processes, including app helpers. Other browser windows may close; save your work first. Clash and other network tools are excluded.")
+        alert.addButton(withTitle: L10n.text("退出这些 App", "Quit these apps"))
+        alert.addButton(withTitle: L10n.text("取消", "Cancel"))
         alert.accessoryView = detailsView(evidenceDetails(items, error: warning))
         return alert.runModal() == .alertFirstButtonReturn
     }
@@ -141,19 +151,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "仍有已观测进程未退出"
-        alert.informativeText = "可以强制退出同一批进程；SIGKILL 前会再次复验完整进程身份，不会重新扫描或扩大目标。"
-        alert.addButton(withTitle: "暂不处理")
-        alert.addButton(withTitle: "强制退出剩余进程")
+        alert.messageText = L10n.text("仍有已观测进程未退出", "Some processes are still running")
+        alert.informativeText = L10n.text("可以强制退出同一批进程；SIGKILL 前会再次复验完整进程身份，不会重新扫描或扩大目标。", "You can force quit the same captured processes. Their identities will be checked again; no new targets will be added.")
+        alert.addButton(withTitle: L10n.text("暂不处理", "Not now"))
+        alert.addButton(withTitle: L10n.text("强制退出剩余进程", "Force quit remaining"))
         alert.accessoryView = detailsView(details)
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
-        setBusy(true, status: "状态：正在强制退出…")
+        setBusy(true, status: L10n.text("状态：正在强制退出…", "Force quitting…"))
         signalProcesses(items: remaining, signal: SIGKILL, waitSeconds: 1) { [weak self] result in
             guard let self else { return }
             let succeeded = result.status == 0
-            self.setBusy(false, status: succeeded ? "状态：强制退出处理完成" : "状态：强制退出失败")
-            self.showAlert(title: succeeded ? "强制退出处理完成" : "强制退出失败", message: succeeded ? "身份一致的目标已收到 SIGKILL；身份改变的目标被跳过。" : "仍有身份匹配的进程未退出。", details: result.output, style: succeeded ? .informational : .critical)
+            self.setBusy(false, status: succeeded ? L10n.text("状态：强制退出处理完成", "Force quit completed") : L10n.text("状态：强制退出失败", "Force quit failed"))
+            self.showAlert(title: succeeded ? L10n.text("强制退出处理完成", "Force quit completed") : L10n.text("强制退出失败", "Force quit failed"), message: succeeded ? L10n.text("身份一致的目标已收到 SIGKILL；身份改变的目标被跳过。", "SIGKILL was sent to matching targets. Changed identities were skipped.") : L10n.text("仍有身份匹配的进程未退出。", "Some matching processes are still running."), details: result.output, style: succeeded ? .informational : .critical)
         }
     }
 
@@ -168,14 +178,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let snapshot = observer.snapshot()
         let live = snapshot.items.filter { processIdentityIsCurrent($0) }
         let count = Set(live.map { $0.process.owner }).count
-        let suffix = snapshot.error == nil ? "" : " · 部分连接不可见"
-        statusItem.button?.toolTip = "\(count) 个相关 App · \(live.count) 个运行中进程\(suffix)"
+        let suffix = snapshot.error == nil ? "" : L10n.text(" · 部分连接不可见", " · Limited connection coverage")
+        statusItem.button?.toolTip = L10n.text("\(count) 个相关 App · \(live.count) 个运行中进程\(suffix)", "Apps: \(count) · Running processes: \(live.count)\(suffix)")
         appList.update(items: snapshot.items, warning: snapshot.error)
     }
 
     private func evidenceDetails(_ items: [NetworkEvidence], error: String?) -> String {
         var lines: [String] = []
-        if let error { lines.append("观察范围提示：\(error)\n") }
+        if let error { lines.append(L10n.text("观察范围提示：\(error)\n", "Coverage notice: \(error)\n")) }
         if items.isEmpty {
             lines.append("(none)\n")
         } else {
@@ -186,9 +196,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 lines.append("【\(owner.name)】")
                 lines.append(owner.path)
                 for item in groups[owner]!.sorted(by: { $0.pid < $1.pid }) {
-                    let state = captureProcessIdentity(pid: item.pid) == item.identity ? "运行中" : "已退出"
+                    let state = captureProcessIdentity(pid: item.pid) == item.identity ? L10n.text("运行中", "Running") : L10n.text("已退出", "Exited")
                     lines.append("  PID \(item.pid) · \(item.processName) · \(state)")
-                    lines.append("    \(item.kind.rawValue)")
+                    lines.append("    \(item.kind.localizedDescription)")
                     if item.kind == .connection {
                         lines.append("    \(formatter.string(from: item.observedAt)) · \(item.matchedDomain)")
                     }
@@ -196,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 lines.append("")
             }
         }
-        lines.append("网络记录仅保留最近 5 分钟。客户端身份不代表已发出网络请求；未观测到的其他 App 不会被猜测加入。")
+        lines.append(L10n.text("网络记录仅保留最近 5 分钟。客户端身份不代表已发出网络请求；未观测到的其他 App 不会被猜测加入。", "Connections are retained for five minutes. Client identity does not imply a request; unobserved apps are not guessed."))
         return lines.joined(separator: "\n")
     }
 
@@ -215,20 +225,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for item in uniqueItems {
                 guard !ProcessInventory.isProtected(item.identity),
                       item.kind == .official || Date().timeIntervalSince(item.observedAt) < ClaudeConnectionObserver.window else {
-                    lines.append("跳过 PID \(item.pid)：受保护或记录已过期。")
+                    lines.append(L10n.text("跳过 PID \(item.pid)：受保护或记录已过期。", "Skipped PID \(item.pid): protected or expired record."))
                     continue
                 }
                 // macOS has no pidfd-style atomic check-and-signal API. Keep the
                 // identity check immediately adjacent to kill to minimize the race.
                 guard captureProcessIdentity(pid: item.pid) == item.identity else {
-                    lines.append("跳过 PID \(item.pid)：进程身份已改变或进程已经退出。")
+                    lines.append(L10n.text("跳过 PID \(item.pid)：进程身份已改变或进程已经退出。", "Skipped PID \(item.pid): identity changed or process exited."))
                     continue
                 }
                 attemptedItems.append(item)
                 if Darwin.kill(item.pid, signal) == 0 {
-                    lines.append("已向 PID \(item.pid)（\(item.processName)）发送 \(signal == SIGTERM ? "SIGTERM" : "SIGKILL")。")
+                    lines.append(L10n.text("已向 PID \(item.pid)（\(item.processName)）发送 \(signal == SIGTERM ? "SIGTERM" : "SIGKILL")。", "Sent \(signal == SIGTERM ? "SIGTERM" : "SIGKILL") to PID \(item.pid) (\(item.processName))."))
                 } else {
-                    lines.append("PID \(item.pid) 信号发送失败：errno \(errno)。")
+                    lines.append(L10n.text("PID \(item.pid) 信号发送失败：errno \(errno)。", "Signal failed for PID \(item.pid): errno \(errno)."))
                 }
             }
 
@@ -242,9 +252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let remaining = attemptedItems.filter { captureProcessIdentity(pid: $0.pid) == $0.identity }
             if remaining.isEmpty {
-                lines.append("所有目标进程均已退出或身份已不再匹配。")
+                lines.append(L10n.text("所有目标进程均已退出或身份已不再匹配。", "All attempted targets exited or no longer match their captured identity."))
             } else {
-                lines.append("仍在运行且身份匹配的 PID：\(remaining.map { String($0.pid) }.joined(separator: ", "))")
+                lines.append(L10n.text("仍在运行且身份匹配的 PID：\(remaining.map { String($0.pid) }.joined(separator: ", "))", "Still-running matching PIDs: \(remaining.map { String($0.pid) }.joined(separator: ", "))"))
             }
             let result = SignalResult(status: remaining.isEmpty ? 0 : 1, output: lines.joined(separator: "\n"))
             DispatchQueue.main.async { completion(result) }
@@ -263,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L10n.text("好", "OK"))
         alert.accessoryView = detailsView(details)
         alert.runModal()
     }

@@ -14,6 +14,10 @@ Click the menu bar icon to open the app list directly. Each app uses its origina
 
 Use **退出全部相关 App…** at the bottom to review and quit the displayed apps together. The action takes its targets from the displayed snapshot, then revalidates their identities. Browsers may close unrelated tabs and windows; save your work first.
 
+The **刷新 / Refresh** button requests a fresh background sample, rather than just redrawing the current list. It shows a refreshing state and coalesces repeated requests while the serial observer is busy. Automatic updates continue.
+
+Choose **中文** or **English** in the top-right language menu. The list, coverage notices, and quit dialogs switch immediately; the preference is retained for the next launch. The initial language follows the system's preferred language (Chinese or English fallback). Application names and domain names are kept as supplied by the system.
+
 ## Connection attribution
 
 The observer reads the numerical local TCP/UDP socket table with `lsof -nP`. It does **not** perform reverse DNS, which can stall for addresses without PTR records.

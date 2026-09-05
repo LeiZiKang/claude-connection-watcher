@@ -62,6 +62,12 @@ private final class AppListCell: NSTableCellView {
 final class AppListViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
     var onQuitAll: (([NetworkEvidence], String?) -> Void)?
     var onQuitWatcher: (() -> Void)?
+    var onRefresh: (() -> Void)?
+    var onLanguageChange: (() -> Void)?
+    private let header = NSTextField(labelWithString: "")
+    private let refreshButton = NSButton(title: "", target: nil, action: nil)
+    private let languagePicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let quitWatcher = NSButton(title: "", target: nil, action: nil)
     private let outline = NSOutlineView()
     private let scroll = NSScrollView()
     private let summary = NSTextField(labelWithString: "正在识别相关 App…")
@@ -75,13 +81,19 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
     private var displayedItems: [NetworkEvidence] = []
     private var warning: String?
     private var busy = false
+    private var refreshing = false
     private var liveCount = 0
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 510))
         preferredContentSize = view.frame.size
-        let header = NSTextField(labelWithString: "相关 App")
         header.font = .systemFont(ofSize: 19, weight: .semibold)
+        refreshButton.bezelStyle = .rounded
+        refreshButton.target = self
+        refreshButton.action = #selector(refreshClicked)
+        languagePicker.addItems(withTitles: ["中文", "English"])
+        languagePicker.target = self
+        languagePicker.action = #selector(languageChanged)
         summary.font = .systemFont(ofSize: 12)
         summary.textColor = .secondaryLabelColor
         let divider = NSBox()
@@ -114,14 +126,15 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
         notice.maximumNumberOfLines = 3
         let footerDivider = NSBox()
         footerDivider.boxType = .separator
-        let quitWatcher = NSButton(title: "退出 Watcher", target: self, action: #selector(quitWatcherClicked))
+        quitWatcher.target = self
+        quitWatcher.action = #selector(quitWatcherClicked)
         quitWatcher.bezelStyle = .inline
         quitWatcher.font = .systemFont(ofSize: 11)
         quitAll.bezelStyle = .rounded
         quitAll.target = self
         quitAll.action = #selector(quitAllClicked)
         quitAll.isEnabled = false
-        let subviews: [NSView] = [header, summary, divider, scroll, empty, notice, footerDivider, quitWatcher, quitAll]
+        let subviews: [NSView] = [header, summary, refreshButton, languagePicker, divider, scroll, empty, notice, footerDivider, quitWatcher, quitAll]
         for subview in subviews {
             subview.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(subview)
@@ -129,6 +142,13 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 22),
+            header.trailingAnchor.constraint(lessThanOrEqualTo: refreshButton.leadingAnchor, constant: -10),
+            languagePicker.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            languagePicker.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            languagePicker.widthAnchor.constraint(equalToConstant: 100),
+            refreshButton.trailingAnchor.constraint(equalTo: languagePicker.leadingAnchor, constant: -8),
+            refreshButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            refreshButton.widthAnchor.constraint(equalToConstant: 110),
             summary.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 6),
             summary.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             summary.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -22),
@@ -154,12 +174,14 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
             quitAll.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             quitAll.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16)
         ])
+        localizeControls()
     }
 
     func update(items: [NetworkEvidence], warning: String?) {
         _ = view // NSViewController loads lazily; also supports macOS 13.
         self.displayedItems = items
         self.warning = warning
+        localizeControls()
         let expanded = Set(groups.filter { outline.isItemExpanded($0) }.map { $0.owner })
         let origin = scroll.contentView.bounds.origin
         let prior = Dictionary(uniqueKeysWithValues: groups.map { ($0.owner, $0) })
@@ -170,8 +192,8 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
             return group
         }
         liveCount = groups.reduce(0) { $0 + $1.processes.filter(\.isRunning).count }
-        summary.stringValue = "\(groups.count) 个 App · \(liveCount) 个运行中进程 · 自动更新"
-        notice.stringValue = warning ?? "显示 Claude 客户端及最近 5 分钟有相关连接的 App。\nClash 等网络工具始终排除。"
+        summary.stringValue = L10n.text("\(groups.count) 个 App · \(liveCount) 个运行中进程 · 自动更新", "Apps: \(groups.count) · Running: \(liveCount) · Auto-update")
+        notice.stringValue = warning ?? L10n.text("显示 Claude 客户端及最近 5 分钟有相关连接的 App。\nClash 等网络工具始终排除。", "Claude clients and apps with related connections in the past 5 minutes.\nNetwork tools such as Clash are excluded.")
         notice.toolTip = notice.stringValue
         notice.textColor = warning == nil ? .secondaryLabelColor : .systemOrange
         empty.isHidden = !groups.isEmpty
@@ -179,14 +201,40 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
         for group in groups where expanded.contains(group.owner) { outline.expandItem(group) }
         scroll.contentView.scroll(to: origin)
         scroll.reflectScrolledClipView(scroll.contentView)
-        quitAll.isEnabled = !busy && liveCount > 0
+        quitAll.isEnabled = !busy && !refreshing && liveCount > 0
         loadIcons()
     }
 
     func setBusy(_ value: Bool) {
         busy = value
-        quitAll.title = value ? "正在退出…" : "退出全部相关 App…"
-        quitAll.isEnabled = !value && liveCount > 0
+        localizeControls()
+    }
+
+    func setRefreshing(_ value: Bool) {
+        refreshing = value
+        localizeControls()
+    }
+
+    private func localizeControls() {
+        header.stringValue = L10n.text("相关 App", "Related apps")
+        refreshButton.title = refreshing ? L10n.text("刷新中…", "Refreshing…") : L10n.text("刷新", "Refresh")
+        refreshButton.toolTip = L10n.text("立即重新采样", "Sample connections now")
+        refreshButton.isEnabled = !busy && !refreshing
+        languagePicker.selectItem(at: L10n.language == .chinese ? 0 : 1)
+        languagePicker.setAccessibilityLabel(L10n.text("语言", "Language"))
+        languagePicker.isEnabled = !busy
+        quitWatcher.title = L10n.text("退出 Watcher", "Quit Watcher")
+        quitAll.title = busy ? L10n.text("正在退出…", "Quitting…") : L10n.text("退出全部相关 App…", "Quit all related apps…")
+        quitAll.isEnabled = !busy && !refreshing && liveCount > 0
+        empty.stringValue = L10n.text("暂未发现相关 App\n识别结果会自动显示在这里", "No related apps found yet\nResults will appear here automatically")
+        outline.setAccessibilityLabel(L10n.text("Claude 相关 App 与进程列表", "Claude-related apps and processes"))
+    }
+
+    @objc private func refreshClicked() { onRefresh?() }
+    @objc private func languageChanged() {
+        L10n.language = languagePicker.indexOfSelectedItem == 0 ? .chinese : .english
+        localizeControls()
+        onLanguageChange?()
     }
 
     private func loadIcons() {
@@ -233,15 +281,15 @@ final class AppListViewController: NSViewController, NSOutlineViewDataSource, NS
             cell.title.stringValue = group.owner.name
             let running = group.processes.filter(\.isRunning).count
             let domains = Set(group.processes.flatMap { $0.evidence.matchedDomain.components(separatedBy: ", ") }.filter { !$0.isEmpty })
-            cell.subtitle.stringValue = "\(running) 个运行中进程" + (domains.isEmpty ? " · 已识别客户端" : " · \(domains.count) 个相关域名")
+            cell.subtitle.stringValue = L10n.text("\(running) 个运行中进程", "Running: \(running)") + (domains.isEmpty ? L10n.text(" · 已识别客户端", " · Verified client") : L10n.text(" · \(domains.count) 个相关域名", " · Domains: \(domains.count)"))
             cell.icon.image = icons[group.owner.path] ?? NSImage(systemSymbolName: "app.dashed", accessibilityDescription: group.owner.name)
-            cell.icon.setAccessibilityLabel(group.owner.name + " 图标")
+            cell.icon.setAccessibilityLabel(group.owner.name + L10n.text(" 图标", " icon"))
             cell.toolTip = group.owner.path
         } else if let row = item as? ProcessRow {
             cell.title.stringValue = row.evidence.processName
-            let basis = row.evidence.matchedDomain.isEmpty ? row.evidence.kind.rawValue : row.evidence.matchedDomain
-            cell.subtitle.stringValue = "PID \(row.evidence.pid) · \(row.isRunning ? basis : "已退出 · " + basis)"
-            cell.toolTip = "\(row.evidence.kind.rawValue)\n\(row.evidence.identity.executablePath)\n\(row.evidence.matchedDomain)"
+            let basis = row.evidence.matchedDomain.isEmpty ? row.evidence.kind.localizedDescription : row.evidence.matchedDomain
+            cell.subtitle.stringValue = "PID \(row.evidence.pid) · \(row.isRunning ? basis : L10n.text("已退出 · ", "Exited · ") + basis)"
+            cell.toolTip = "\(row.evidence.kind.localizedDescription)\n\(row.evidence.identity.executablePath)\n\(row.evidence.matchedDomain)"
         }
         return cell
     }

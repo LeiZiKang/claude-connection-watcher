@@ -10,6 +10,16 @@ func runSelfTests() {
         checks += 1
     }
     require(captureProcessIdentity(pid: getpid())?.pid == getpid(), "native identity")
+    require(AppLanguage.resolve(saved: "zh-Hans", preferred: ["en-US"]) == .chinese, "saved Chinese wins")
+    require(AppLanguage.resolve(saved: "en", preferred: ["zh-Hans"]) == .english, "saved English wins")
+    require(AppLanguage.resolve(saved: nil, preferred: ["zh-TW"]) == .chinese, "Chinese system default")
+    require(AppLanguage.resolve(saved: "invalid", preferred: ["fr-FR"]) == .english, "unsupported language fallback")
+    let refreshGate = RefreshGate()
+    require(refreshGate.begin(), "first manual refresh accepted")
+    require(!refreshGate.begin(), "duplicate manual refresh coalesced")
+    refreshGate.finish()
+    require(refreshGate.begin(), "manual refresh can run again after completion")
+    refreshGate.finish()
     for host in ["anthropic.com", "api.anthropic.com", "CLAUDE.AI.", "claude.com"] {
         require(ClaudeConnectionObserver.domainMatches(host), "accepted domain \(host)")
     }
