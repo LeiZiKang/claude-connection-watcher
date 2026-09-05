@@ -75,3 +75,9 @@ release/Claude-Connection-Watcher-vVERSION-macOS-universal.zip.sha256
 7. Publish the draft release.
 
 Never attach the contents of the local `release/` directory to Git itself. The directory is ignored and is only a staging area for GitHub Release assets.
+
+## Homebrew tap
+
+Maintain `Casks/claude-connection-watcher.rb` in the separate public `LeiZiKang/homebrew-tap` repository. After publishing a release, update the cask's version and SHA-256 to match the exact downloadable ZIP. Do not use `:no_check` or attach signing credentials to the tap.
+
+Validate the cask with `brew style`, load its metadata with `brew info --cask`, and verify the published download with `brew fetch --cask`. A local install test must preserve any existing manual installation and preferences. Publish the release asset before publishing a cask that references it.

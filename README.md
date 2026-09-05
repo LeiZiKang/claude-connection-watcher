@@ -4,6 +4,22 @@ A native macOS menu bar app that groups Claude-related processes by their applic
 
 This is an independent project, not affiliated with or endorsed by Anthropic.
 
+## Install
+
+Download the signed and Apple-notarized Universal 2 ZIP from [GitHub Releases](https://github.com/LeiZiKang/claude-connection-watcher/releases/latest). Extract it and move **Claude Connection Watcher.app** into Applications. macOS 13 or later is required; Apple silicon and Intel Macs are supported. Download the application ZIP, not GitHub's source-code archives. Xcode is only needed to build from source.
+
+Or install using the maintainer's Homebrew tap:
+
+```bash
+brew install --cask leizikang/tap/claude-connection-watcher
+```
+
+Update with `brew update` followed by `brew upgrade --cask claude-connection-watcher`. This is a third-party tap maintained at [LeiZiKang/homebrew-tap](https://github.com/LeiZiKang/homebrew-tap), not an entry in the official Homebrew Cask repository.
+
+If you already installed a copy manually, quit Watcher and move that copy out of Applications before installing with Homebrew. Keep it until the Homebrew installation succeeds. Your language preference is preserved.
+
+安装后点击菜单栏图标即可查看相关 App；右上角可以选择 **中文 / English**，并使用 **刷新 / Refresh** 手动重新采样。
+
 ## What appears in the list
 
 - **Official clients:** running Claude Desktop components and native Claude Code installations, identified by application ownership and Anthropic's Developer ID signature. These remain visible even when idle. Client identity is not presented as evidence of a network request.
